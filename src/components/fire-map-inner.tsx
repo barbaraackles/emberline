@@ -2,13 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { FireMapProps } from "@/components/fire-map";
-import {
-  causeLabel,
-  prettyName,
-  formatHa,
-  type City,
-  type FireRecord,
-} from "@/lib/catalog";
+import { causeLabel, prettyName, formatHa, type City, type FireRecord } from "@/lib/catalog";
 
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -17,20 +11,72 @@ const BC_BOUNDS: maplibregl.LngLatBoundsLike = [
   [-112.6, 60.9],
 ];
 
-const CARTO_TILES = [
-  "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-  "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-  "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-  "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+// Keyless dark basemap: OpenFreeMap vector tiles (OpenMapTiles schema, © OpenStreetMap).
+// https://openfreemap.org — no API key, free for production use.
+const OFM_TILEJSON = "https://tiles.openfreemap.org/planet";
+const OFM_GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
+const DARK_FONT = ["Noto Sans Regular"];
+
+const DARK_LAYERS: maplibregl.LayerSpecification[] = [
+  { id: "dark-bg", type: "background", paint: { "background-color": "#141210" } },
+  {
+    id: "dark-landcover",
+    type: "fill",
+    source: "ofm",
+    "source-layer": "landcover",
+    filter: ["in", ["get", "class"], ["literal", ["wood", "grass", "farmland"]]],
+    paint: { "fill-color": "#1a1815", "fill-opacity": 0.6 },
+  },
+  {
+    id: "dark-water",
+    type: "fill",
+    source: "ofm",
+    "source-layer": "water",
+    paint: { "fill-color": "#0b0f12" },
+  },
+  {
+    id: "dark-boundary",
+    type: "line",
+    source: "ofm",
+    "source-layer": "boundary",
+    filter: ["<=", ["get", "admin_level"], 4],
+    paint: { "line-color": "#4a443d", "line-width": 0.8, "line-dasharray": [3, 2] },
+  },
+  {
+    id: "dark-roads",
+    type: "line",
+    source: "ofm",
+    "source-layer": "transportation",
+    filter: [
+      "in",
+      ["get", "class"],
+      ["literal", ["motorway", "trunk", "primary", "secondary", "tertiary"]],
+    ],
+    paint: {
+      "line-color": "#3a352f",
+      "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 12, 1.6],
+    },
+  },
+  {
+    id: "dark-place",
+    type: "symbol",
+    source: "ofm",
+    "source-layer": "place",
+    filter: ["in", ["get", "class"], ["literal", ["city", "town", "village"]]],
+    layout: {
+      "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
+      "text-font": DARK_FONT,
+      "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 10, 13],
+    },
+    paint: { "text-color": "#8f877c", "text-halo-color": "#0e0d0c", "text-halo-width": 1.2 },
+  },
 ];
 
 const ESRI_TILES = [
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
 ];
 
-const TERRAIN_TILES = [
-  "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",
-];
+const TERRAIN_TILES = ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"];
 
 const HIT_LAYERS = ["cities-circle", "fires-circle"] as const;
 
@@ -45,7 +91,10 @@ function circlePolygon(lng: number, lat: number, radiusM: number, steps = 48): G
   const mPerDegLng = 111_320 * Math.cos(latRad);
   for (let i = 0; i <= steps; i++) {
     const a = (i / steps) * Math.PI * 2;
-    coords.push([lng + (radiusM * Math.cos(a)) / mPerDegLng, lat + (radiusM * Math.sin(a)) / mPerDegLat]);
+    coords.push([
+      lng + (radiusM * Math.cos(a)) / mPerDegLng,
+      lat + (radiusM * Math.sin(a)) / mPerDegLat,
+    ]);
   }
   return { type: "Polygon", coordinates: [coords] };
 }
@@ -85,10 +134,7 @@ function footprintsToGeoJSON(fires: FireRecord[]): GeoJSON.FeatureCollection {
   };
 }
 
-function selectionToGeoJSON(
-  city: City | null,
-  fire: FireRecord | null,
-): GeoJSON.FeatureCollection {
+function selectionToGeoJSON(city: City | null, fire: FireRecord | null): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   if (city) {
     features.push(
@@ -138,15 +184,20 @@ function setSourceData(map: maplibregl.Map, id: string, data: GeoJSON.FeatureCol
 function buildStyle(basemap: "dark" | "sat"): maplibregl.StyleSpecification {
   return {
     version: 8,
-    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    glyphs: OFM_GLYPHS,
     sources: {
       basemap: {
         type: "raster",
-        tiles: basemap === "sat" ? ESRI_TILES : CARTO_TILES,
+        tiles: ESRI_TILES,
         tileSize: 256,
-        attribution:
-          "© OpenStreetMap © CARTO · Tiles © Esri · Terrain AWS/Mapzen",
+        attribution: "Imagery © Esri",
         maxzoom: 19,
+      },
+      ofm: {
+        type: "vector",
+        url: OFM_TILEJSON,
+        attribution:
+          '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> · Terrain AWS/Mapzen',
       },
       terrain: {
         type: "raster-dem",
@@ -168,10 +219,15 @@ function buildStyle(basemap: "dark" | "sat"): maplibregl.StyleSpecification {
       selection: { type: "geojson", data: EMPTY },
     },
     layers: [
+      ...(DARK_LAYERS.map((l) => ({
+        ...l,
+        layout: { ...(l.layout ?? {}), visibility: basemap === "dark" ? "visible" : "none" },
+      })) as maplibregl.LayerSpecification[]),
       {
         id: "basemap",
         type: "raster",
         source: "basemap",
+        layout: { visibility: basemap === "sat" ? "visible" : "none" },
       },
       {
         id: "hillshade",
@@ -199,13 +255,7 @@ function buildStyle(basemap: "dark" | "sat"): maplibregl.StyleSpecification {
         type: "line",
         source: "footprints",
         paint: {
-          "line-color": [
-            "match",
-            ["get", "cause"],
-            "h",
-            "#c24b32",
-            "#d7d0c4",
-          ],
+          "line-color": ["match", ["get", "cause"], "h", "#c24b32", "#d7d0c4"],
           "line-width": 0.7,
           "line-opacity": 0.35,
         },
@@ -225,15 +275,7 @@ function buildStyle(basemap: "dark" | "sat"): maplibregl.StyleSpecification {
             "#c24b32",
             "#9a948a",
           ],
-          "fill-opacity": [
-            "match",
-            ["get", "kind"],
-            "hiz",
-            0.04,
-            "community",
-            0.05,
-            0.03,
-          ],
+          "fill-opacity": ["match", ["get", "kind"], "hiz", 0.04, "community", 0.05, 0.03],
         },
       },
       {
@@ -294,39 +336,9 @@ function buildStyle(basemap: "dark" | "sat"): maplibregl.StyleSpecification {
             20000,
             1,
           ],
-          "heatmap-intensity": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            5,
-            1.15,
-            9,
-            1.35,
-            12,
-            1.7,
-          ],
-          "heatmap-radius": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            5,
-            22,
-            8,
-            28,
-            12,
-            40,
-          ],
-          "heatmap-opacity": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            5,
-            0.88,
-            9,
-            0.55,
-            12,
-            0.14,
-          ],
+          "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 5, 1.15, 9, 1.35, 12, 1.7],
+          "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 22, 8, 28, 12, 40],
+          "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.88, 9, 0.55, 12, 0.14],
           "heatmap-color": [
             "interpolate",
             ["linear"],
@@ -356,38 +368,12 @@ function buildStyle(basemap: "dark" | "sat"): maplibregl.StyleSpecification {
             ["linear"],
             ["zoom"],
             5,
-            [
-              "+",
-              2.1,
-              [
-                "*",
-                5.4,
-                ["/", ["ln", ["+", ["get", "ha"], 1]], ["ln", 20001]],
-              ],
-            ],
+            ["+", 2.1, ["*", 5.4, ["/", ["ln", ["+", ["get", "ha"], 1]], ["ln", 20001]]]],
             12,
-            [
-              "+",
-              4,
-              [
-                "*",
-                14,
-                ["/", ["ln", ["+", ["get", "ha"], 1]], ["ln", 20001]],
-              ],
-            ],
+            ["+", 4, ["*", 14, ["/", ["ln", ["+", ["get", "ha"], 1]], ["ln", 20001]]]],
           ],
           "circle-color": ["match", ["get", "cause"], "h", "#c24b32", "#d7d0c4"],
-          "circle-opacity": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            5,
-            0.42,
-            8,
-            0.72,
-            12,
-            0.88,
-          ],
+          "circle-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.42, 8, 0.72, 12, 0.88],
           "circle-stroke-width": 0.6,
           "circle-stroke-color": ["match", ["get", "cause"], "h", "#c24b32", "#ece8e1"],
           "circle-pitch-alignment": "map",
@@ -466,10 +452,7 @@ export function FireMapInner(props: FireMapProps) {
     });
     mapRef.current = map;
 
-    map.addControl(
-      new maplibregl.AttributionControl({ compact: true }),
-      "bottom-right",
-    );
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
     map.addControl(
       new maplibregl.NavigationControl({
         visualizePitch: true,
@@ -624,11 +607,7 @@ function syncFromProps(map: maplibregl.Map, props: FireMapProps) {
   if (!map.getSource("fires")) return;
 
   setSourceData(map, "fires", firesToGeoJSON(props.fires));
-  setSourceData(
-    map,
-    "cities",
-    props.filters.showCities ? citiesToGeoJSON(props.cities) : EMPTY,
-  );
+  setSourceData(map, "cities", props.filters.showCities ? citiesToGeoJSON(props.cities) : EMPTY);
   setSourceData(
     map,
     "footprints",
@@ -642,10 +621,11 @@ function syncFromProps(map: maplibregl.Map, props: FireMapProps) {
     props.filters.showHotspots ? "visible" : "none",
   );
 
-  const basemap = map.getSource("basemap") as maplibregl.RasterTileSource | undefined;
-  if (basemap) {
-    const tiles = props.filters.basemap === "sat" ? ESRI_TILES : CARTO_TILES;
-    basemap.setTiles(tiles);
+  const sat = props.filters.basemap === "sat";
+  if (map.getLayer("basemap"))
+    map.setLayoutProperty("basemap", "visibility", sat ? "visible" : "none");
+  for (const l of DARK_LAYERS) {
+    if (map.getLayer(l.id)) map.setLayoutProperty(l.id, "visibility", sat ? "none" : "visible");
   }
   if (map.getLayer("hillshade")) {
     map.setPaintProperty(
