@@ -55,7 +55,12 @@ function regionPlay(region: string): { fuel: string; wind: string } {
       wind: "Long-running lightning complexes (Donnie Creek, Nogah, Hossitl) can make 20–40 km runs toward industrial and municipal edges.",
     };
   }
-  if (r.includes("kootenay") || r.includes("columbia") || r.includes("boundary") || r.includes("shuswap")) {
+  if (
+    r.includes("kootenay") ||
+    r.includes("columbia") ||
+    r.includes("boundary") ||
+    r.includes("shuswap")
+  ) {
     return {
       fuel: "Steep valley timber with slash and deadfall. Settlements occupy the only flat ground, so fire coming off the slope hits the town first.",
       wind: "Upslope afternoon winds and outflow through lake valleys. Highway closures isolate towns for days.",
@@ -67,7 +72,12 @@ function regionPlay(region: string): { fuel: string; wind: string } {
       wind: "Outflow and inflow along a single highway corridor. A closure south or north strands the valley.",
     };
   }
-  if (r.includes("island") || r.includes("fraser valley") || r.includes("metro") || r.includes("coast")) {
+  if (
+    r.includes("island") ||
+    r.includes("fraser valley") ||
+    r.includes("metro") ||
+    r.includes("coast")
+  ) {
     return {
       fuel: "Coastal forest and slash. Risk is concentrated on the wildland edge — North Shore slopes, Sooke Hills, Alberni valley — not the urban core.",
       wind: "Outflow and drought-year east winds. A single highway (Hwy 4, Sea-to-Sky, Island Hwy) becomes the failure point.",
@@ -90,10 +100,11 @@ export function nearbyHotspots(city: City, hotspots: Hotspot[], km = 40): Hotspo
 
 export function buildPlan(city: City, hotspots: Hotspot[]): CityPlan {
   const { fuel, wind } = regionPlay(city.region);
-  const humanShare =
-    city.starts10 > 0 ? Math.round((100 * city.human10) / city.starts10) : 0;
+  const humanShare = city.starts10 > 0 ? Math.round((100 * city.human10) / city.starts10) : 0;
   const lightningShare =
     city.starts10 > 0 ? Math.round((100 * city.lightning10) / city.starts10) : 0;
+  const unknownShare = city.starts10 > 0 ? Math.max(0, 100 - humanShare - lightningShare) : 0;
+  const mix = `human ${humanShare}%, lightning ${lightningShare}%, unknown or unrecorded cause ${unknownShare}%`;
   const local = nearbyHotspots(city, hotspots);
   const largest = city.largest;
   const rating = ratingLabel(city.rating);
@@ -105,7 +116,7 @@ export function buildPlan(city: City, hotspots: Hotspot[]): CityPlan {
         ? `${city.name} has a documented interface problem. Fuel, embers and access — in that order — decide whether the next fire stays in the timber.`
         : city.rating === "moderate"
           ? `${city.name} is not a free pass. Keep the home ignition zone clean and the egress routes redundant before a drought year arrives.`
-          : `${city.name} is lower on the provincial ranking, but the wildland edge still needs a maintained perimeter and a practised evacuation.`
+          : `${city.name} is lower on the provincial ranking, but the wildland edge still needs a maintained perimeter and a practised evacuation.`;
 
   const situation = [
     `Perimeter risk for ${city.name} is ${rating.toLowerCase()} (${city.score.toFixed(0)} / 100) based on 2015–2025 BC Wildfire Service incidents.`,
@@ -121,10 +132,14 @@ export function buildPlan(city: City, hotspots: Hotspot[]): CityPlan {
 
   const ignition =
     humanShare >= 45
-      ? `Human starts dominate the 10 km ring (${humanShare}%). Prevention spend should follow people: campfires, machinery, powerlines, right-of-ways and discarded smoking materials — not only remote lightning country.`
+      ? `Human starts dominate the 10 km ring (${mix}). Prevention spend should follow people: campfires, machinery, powerlines, right-of-ways and discarded smoking materials — not only remote lightning country.`
       : lightningShare >= 45
-        ? `Lightning accounts for ${lightningShare}% of starts inside 10 km. Landscape fuel treatment, holdover detection and sprinkler protection on the town edge outrank campfire posters.`
-        : `Starts inside 10 km are mixed (human ${humanShare}%, lightning ${lightningShare}%). Run both a people program and a fuel program; neither is optional.`;
+        ? `Lightning accounts for ${lightningShare}% of starts inside 10 km (${mix}). Landscape fuel treatment, holdover detection and sprinkler protection on the town edge outrank campfire posters.`
+        : city.starts10 === 0
+          ? `No starts were recorded inside 10 km this decade. Keep both a people program and a fuel program ready; one quiet decade is not a forecast.`
+          : lightningShare === 0
+            ? `No lightning starts were recorded inside 10 km (${mix}). The known starts are human-caused, so prevention should follow people first, but the large unknown share means fuel treatment on the edge still matters.`
+            : `Starts inside 10 km are mixed (${mix}). Run both a people program and a fuel program; neither is optional.`;
 
   const actions: PlanAction[] = [
     {
@@ -194,16 +209,46 @@ export function buildPlan(city: City, hotspots: Hotspot[]): CityPlan {
   }
 
   const calendar: PlanMonth[] = [
-    { when: "Jan–Mar", work: "Update the Community Wildfire Resiliency Plan. Bid fuel-treatment contracts on the upwind perimeter. Inventory sprinkler kits and pumps." },
-    { when: "April", work: "Roof and gutter campaign. Test hydrants and fill portable tanks. Neighbourhood FireSmart assessments before long weekends." },
-    { when: "May–Jun", work: "Mow the 10 m zone. Chip winter piles. Stand up industrial and recreation patrols. Confirm livestock and elder transport lists." },
-    { when: "Jul–Aug", work: "Peak season. Daily FWI to the public. Ban campfires to match conditions, not the calendar. Night-time holdover patrols after lightning." },
-    { when: "Sep–Oct", work: "After-action on every alert. Burn windows for piled fuel. Replant treated breaks with fire-resistant deciduous where it will survive." },
-    { when: "Nov–Dec", work: "Building-permit review against WUI guidelines. Grant applications for retrofits. Tabletop evacuation with BCWS, RCMP and the regional district." },
+    {
+      when: "Jan–Mar",
+      work: "Update the Community Wildfire Resiliency Plan. Bid fuel-treatment contracts on the upwind perimeter. Inventory sprinkler kits and pumps.",
+    },
+    {
+      when: "April",
+      work: "Roof and gutter campaign. Test hydrants and fill portable tanks. Neighbourhood FireSmart assessments before long weekends.",
+    },
+    {
+      when: "May–Jun",
+      work: "Mow the 10 m zone. Chip winter piles. Stand up industrial and recreation patrols. Confirm livestock and elder transport lists.",
+    },
+    {
+      when: "Jul–Aug",
+      work: "Peak season. Daily FWI to the public. Ban campfires to match conditions, not the calendar. Night-time holdover patrols after lightning.",
+    },
+    {
+      when: "Sep–Oct",
+      work: "After-action on every alert. Burn windows for piled fuel. Replant treated breaks with fire-resistant deciduous where it will survive.",
+    },
+    {
+      when: "Nov–Dec",
+      work: "Building-permit review against WUI guidelines. Grant applications for retrofits. Tabletop evacuation with BCWS, RCMP and the regional district.",
+    },
   ];
 
   const partners = [
-    "BC Wildfire Service — " + (city.centre === "kamloops" ? "Kamloops" : city.centre === "cariboo" ? "Cariboo" : city.centre === "prince-george" ? "Prince George" : city.centre === "northwest" ? "Northwest" : city.centre === "southeast" ? "Southeast" : "Coastal") + " Fire Centre",
+    "BC Wildfire Service — " +
+      (city.centre === "kamloops"
+        ? "Kamloops"
+        : city.centre === "cariboo"
+          ? "Cariboo"
+          : city.centre === "prince-george"
+            ? "Prince George"
+            : city.centre === "northwest"
+              ? "Northwest"
+              : city.centre === "southeast"
+                ? "Southeast"
+                : "Coastal") +
+      " Fire Centre",
     "FireSmart BC / FireSmart Canada Neighbourhood Recognition",
     "Local fire department and regional district emergency program",
     "Adjacent First Nations emergency operations",
